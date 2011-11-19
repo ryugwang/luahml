@@ -80,14 +80,6 @@ function make_elem(node, mt)
 	return elem
 end
 
-local function cook_elems(doc, selector, target, mt)
-	for e in doc.node(selector):iter() do
-		local elem = make_elem(e, mt)
-		table.insert(target, elem)
-		target[e.attr.Id] = elem
-	end
-end
-
 local function get_fonts(doc)
 	local fonts = {}
 	for e in doc:iter'HEAD MAPPINGTABLE FONT' do
@@ -141,11 +133,79 @@ local function get_styles(doc)
 		local style = Style(node, doc)
 		table.insert(target_list, style)
 		target_list[style.Name] = style
+		target_list[style.Id] = style
 		if style.EngName then
 			target_list[style.EngName] = style
 		end
 	end
 	return para_styles, char_styles
+end
+
+
+local function char_get_set_str(elem, str)
+	local charmap = {TAB = '\t', LINEBREAK = '\n',
+			NBSPACE = string.char(160)
+	}
+
+	if str then
+		for k, v in pairs(charmap) do
+			str = str:gsub(v, '<' .. k .. '/>')
+		end
+		local nodes = xselec.load_from_string('<DUMMY>' .. str .. '</DUMMY>')
+		for i, v in ipairs(nodes) do
+			elem.node[i] = v
+		end
+		elem.node[#nodes+1] = nil
+		return
+	else
+		local str = ''
+		for i, v in ipairs(elem.node) do
+			if type(v) == 'table' and v.tag then
+				local cd = charmap[v.tag] or xselec.make_selectable(v):toxml()
+				str = str .. cd
+				
+			else
+				str = str .. v
+			end
+		end
+		return str
+	end
+end
+
+local function Char(node, text, para)
+	local item = make_elem(node)
+	item.text = text
+	item.para = para
+	getmetatable(item).val = char_get_set_str
+	return item
+end
+
+local function get_chars(doc)
+	local result = {}
+	for _, p in ipairs(doc.paras) do
+		local first_c = true
+		local last_c
+		for t in p:iter'TEXT' do
+			local item
+			for c in t:iter'CHAR' do
+				item = Char(c.node, t, p)
+				item.first = first_c
+				first_c = nil
+				last_c = item
+				table.insert(result, item)
+			end
+		end
+		if last_c then last_c.last = true end
+	end
+	return result
+end
+
+local function get_paras(doc)
+	local result = {}
+	for p in doc.node'BODY P':iter() do
+		table.insert(result, make_elem(p))
+	end
+	return result
 end
 
 function load(filename)
@@ -155,6 +215,7 @@ function load(filename)
 	end
 
 	local doc = make_elem(xml)
+
 	doc.filename = filename
 	doc.save = function(self, filename)
 		filename = filename or self.filename
@@ -166,52 +227,27 @@ function load(filename)
 		self.node:output(puts)
 	end	
 
-	doc.paras = function(self)
-		local result = {}
-		for p in self.node'BODY P':iter() do
-			table.insert(result, make_elem(p))
-		end
-		return result
-	end
-
-	doc.strings = function(self)
-		local result = {}
-		local charmap = {TAB = '\t', LINEBREAK = '\n', HYPEN = '-', 
-			NBSPACE = string.char(160)
-		}
-		for _, p in ipairs(doc:paras()) do
-			local first_c = true
-			local last_c
-			for t in p:iter'TEXT' do
-				for c in t:iter'CHAR' do for i, v in ipairs(c.node) do
-					local str = ''
-					local node
-					if type(v) == 'table' and v.tag then
-						str = charmap[v.tag] or ''
-						node = v
-					else
-						str = v
-					end
-
-					local item = {
-						char = c, para = p, text = t, 
-						str = str, node = node
-					}
-					item.first = first_c
-					first_c = nil
-					last_c = item
-					table.insert(result, item)
-				end end
-			end
-			if last_c then last_c.last = true end
-		end
-		return result
-	end
-
 	doc.iter = iter
 
-	doc.fonts = get_fonts(doc)
-	doc.para_shapes, doc.char_shapes = get_shapes(doc)
-	doc.para_styles, doc.char_styles = get_styles(doc)
+	doc.refresh = function(self, target)
+		local funcs = {paras = get_paras,
+			chars = get_chars,
+			fonts = get_fonts,
+		}
+
+		if target == 'all' then
+			for k, v in pairs(funcs) do
+				self[k] = funcs[k](self)
+			end
+			self.para_shapes, self.char_shapes = get_shapes(self)
+			self.para_styles, self.char_styles = get_styles(self)
+		elseif target == 'styles' then
+			self.para_shapes, self.char_shapes = get_shapes(self)
+			self.para_styles, self.char_styles = get_styles(self)
+		elseif funcs[target] then
+			funcs[target](self)
+		end
+	end
+	doc:refresh('all')
 	return doc
 end
