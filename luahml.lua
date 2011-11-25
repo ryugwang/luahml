@@ -1,5 +1,14 @@
-module(..., package.seeall)
-require"xselec"
+local xselec = require"xselec"
+local M_ = {}
+
+local mt_elem = {}
+
+local function make_elem(node, mt)
+	local elem = {node = xselec.make_selectable(node)}
+	local mt_ = mt or mt_elem
+	setmetatable(elem, mt_)
+	return elem
+end
 
 local function iter(t, filter)
 	local state = { index = 0}
@@ -71,14 +80,7 @@ local function forward_attr(mt)
 	return mt
 end
 
-local mt_elem = forward_attr()
-
-function make_elem(node, mt)
-	local elem = {node = xselec.make_selectable(node)}
-	local mt_ = mt or mt_elem
-	setmetatable(elem, mt_)
-	return elem
-end
+mt_elem = forward_attr()
 
 local function get_fonts(doc)
 	local fonts = {}
@@ -182,7 +184,7 @@ end
 
 local function get_chars(doc)
 	local result = {}
-	for _, p in ipairs(doc.paras) do
+	for _, p in ipairs(doc:get_paras()) do
 		local first_c = true
 		local last_c
 		for t in p:iter'TEXT' do
@@ -208,7 +210,7 @@ local function get_paras(doc)
 	return result
 end
 
-function load(filename)
+local function load(filename)
 	local xml, err = xselec.load_from_file(filename)
 	if xml == nil then
 		return nil, err
@@ -228,26 +230,18 @@ function load(filename)
 	end	
 
 	doc.iter = iter
+	
+	doc.get_paras = get_paras
+	doc.get_chars = get_chars
 
-	doc.refresh = function(self, target)
-		local funcs = {paras = get_paras,
-			chars = get_chars,
-			fonts = get_fonts,
-		}
+	doc.para_shapes, doc.char_shapes = get_shapes(doc)
+	doc.para_styles, doc.char_styles = get_styles(doc)
 
-		if target == 'all' then
-			for k, v in pairs(funcs) do
-				self[k] = funcs[k](self)
-			end
-			self.para_shapes, self.char_shapes = get_shapes(self)
-			self.para_styles, self.char_styles = get_styles(self)
-		elseif target == 'styles' then
-			self.para_shapes, self.char_shapes = get_shapes(self)
-			self.para_styles, self.char_styles = get_styles(self)
-		elseif funcs[target] then
-			funcs[target](self)
-		end
-	end
-	doc:refresh('all')
 	return doc
 end
+
+-- interface --
+return {
+	load = load
+	, make_elem = make_elem
+}

@@ -1,4 +1,3 @@
-module(..., package.seeall)
 require"lxp.lom"
 
 local function escape_xml_specials(str)
@@ -43,7 +42,7 @@ end
 
 local mt = {} -- 메서드들을 담은 메타테이블. 구체적인 정의는 아래에서.
 
-function make_selectable(t)
+local function make_selectable(t)
 	setmetatable(t, mt)
 	return t
 end
@@ -150,12 +149,12 @@ mt.each = function(self, f)
 end
 
 mt.iter = function(self)
+	local state = {index=0}
     return function(state)
     	state.index = state.index + 1
     	if state.index > #self then return end
-    	
     	return make_selectable(rawget(self, state.index))
-    end, {index = 0}
+    end, state
 end
 
 local function find_elems(node, pred, norecurse, result, visited)
@@ -379,7 +378,7 @@ local function reserve_entities(str)
 	return str:gsub('&', '&amp;')
 end
 
-function load_from_string(str)
+local function load_from_string(str)
 	str = reserve_entities(str)
 	local preamble = get_preamble(str)
 	local t, err = lxp.lom.parse(str)
@@ -391,7 +390,7 @@ function load_from_string(str)
 	end
 end
 
-function load_from_file(filename)
+local function load_from_file(filename)
 	local f, err = io.open(filename,'rb')
 	if f then
 		return load_from_string(f:read'*a')
@@ -400,6 +399,14 @@ function load_from_file(filename)
 	end
 end
 
-function regex_pattern(s)
+local function regex_pattern(s)
 	return {pattern=s}
 end
+
+-- interface --
+return {
+	load_from_string = load_from_string
+	, load_from_file = load_from_file
+	, make_selectable = make_selectable
+	, regex_pattern = regex_pattern
+}
