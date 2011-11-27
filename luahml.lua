@@ -1,33 +1,12 @@
 local xselec = require"xselec"
-local M_ = {}
 
-local mt_elem = {}
+local mt_common, mt_para, mt_char
+	, make_elem, iter
 
-local function make_elem(node, mt)
-	local elem = {node = xselec.make_selectable(node)}
-	local mt_ = mt or mt_elem
-	setmetatable(elem, mt_)
-	return elem
-end
 
-local function iter(t, filter)
-	local state = { index = 0}
-	if filter then
-		state.items = t.node(filter)
-	else
-		state.items = t.node
-	end
-	return function(state)
-		local item
-		while true do
-			state.index = state.index + 1
-			if state.index > #(state.items) then return end
-			item = rawget(state.items, state.index)
-			if item.tag then break end
-		end
-		return make_elem(item, self)
-	end, state
-end
+---------------------------------------
+-- 모든 요소의 기본 메서드들
+---------------------------------------
 
 local function forward_attr(mt)
 	mt = mt or {}
@@ -60,6 +39,15 @@ local function forward_attr(mt)
 			rawset(t, key, val)
 		end
 	end
+
+	mt.__call = function(t, filter) 
+		local result = {}
+		for i, v in ipairs(t.node(filter)) do
+			table.insert(result, make_elem(v))
+		end
+		return result
+	end
+
 	mt.val = function(t, val)
 		if type(t.node[1]) ~= 'string' then return end
 		if val then
@@ -70,18 +58,85 @@ local function forward_attr(mt)
 	end
 	mt.iter = iter
 
-	mt.__call = function(t, filter) 
-		local result = {}
-		for i, v in ipairs(t.node(filter)) do
-			table.insert(result, make_elem(v))
-		end
-		return result
-	end
 	return mt
 end
 
-mt_elem = forward_attr()
+iter = function(t, filter)
+	local state = { index = 0}
+	if filter then
+		state.items = t.node(filter)
+	else
+		state.items = t.node
+	end
+	return function(state)
+		local item
+		while true do
+			state.index = state.index + 1
+			if state.index > #(state.items) then return end
+			item = rawget(state.items, state.index)
+			if item.tag then break end
+		end
+		return make_elem(item)
+	end, state
+end
 
+mt_common = forward_attr()
+
+make_elem = function(node, mt)
+	local metatable_map = {P = mt_para, CHAR = mt_char}
+	local elem = {node = xselec.make_selectable(node)}
+	local mt_ = mt or metatable_map[node.tag] or mt_common
+	setmetatable(elem, mt_)
+	return elem
+end
+
+-- P 요소용 메서드
+mt_para = forward_attr()
+
+mt_para.append = function(self, para)
+	table.insert(self.section.node, self.nth+1, para)
+end
+
+mt_para.prepend = function(self, para)
+	table.insert(self.section.node, self.nth, para)
+	return make_elem(para)
+end
+
+-- CHAR용 메서드
+mt_char = forward_attr()
+mt_char.val = function(elem, str)
+	local charmap = {TAB = '\t', LINEBREAK = '\n',
+			NBSPACE = string.char(160)
+	}
+
+	if str then
+		for k, v in pairs(charmap) do
+			str = str:gsub(v, '<' .. k .. '/>')
+		end
+		local nodes = xselec.load_from_string('<DUMMY>' .. str .. '</DUMMY>')
+		for i, v in ipairs(nodes) do
+			elem.node[i] = v
+		end
+		elem.node[#nodes+1] = nil
+		return
+	else
+		local str = ''
+		for i, v in ipairs(elem.node) do
+			if type(v) == 'table' and v.tag then
+				local cd = charmap[v.tag] or xselec.make_selectable(v):toxml()
+				str = str .. cd
+				
+			else
+				str = str .. v
+			end
+		end
+		return str
+	end
+end
+
+---------------------------------------------
+-- 기타 함수들
+---------------------------------------------
 local function get_fonts(doc)
 	local fonts = {}
 	for e in doc:iter'HEAD MAPPINGTABLE FONT' do
@@ -143,45 +198,6 @@ local function get_styles(doc)
 	return para_styles, char_styles
 end
 
-
-local function char_get_set_str(elem, str)
-	local charmap = {TAB = '\t', LINEBREAK = '\n',
-			NBSPACE = string.char(160)
-	}
-
-	if str then
-		for k, v in pairs(charmap) do
-			str = str:gsub(v, '<' .. k .. '/>')
-		end
-		local nodes = xselec.load_from_string('<DUMMY>' .. str .. '</DUMMY>')
-		for i, v in ipairs(nodes) do
-			elem.node[i] = v
-		end
-		elem.node[#nodes+1] = nil
-		return
-	else
-		local str = ''
-		for i, v in ipairs(elem.node) do
-			if type(v) == 'table' and v.tag then
-				local cd = charmap[v.tag] or xselec.make_selectable(v):toxml()
-				str = str .. cd
-				
-			else
-				str = str .. v
-			end
-		end
-		return str
-	end
-end
-
-local function Char(node, text, para)
-	local item = make_elem(node)
-	item.text = text
-	item.para = para
-	getmetatable(item).val = char_get_set_str
-	return item
-end
-
 local function get_chars(doc)
 	local result = {}
 	for _, p in ipairs(doc:get_paras()) do
@@ -190,7 +206,9 @@ local function get_chars(doc)
 		for t in p:iter'TEXT' do
 			local item
 			for c in t:iter'CHAR' do
-				item = Char(c.node, t, p)
+				item = make_elem(c.node)
+				item.text = t
+				item.para = p
 				item.first = first_c
 				first_c = nil
 				last_c = item
@@ -204,8 +222,13 @@ end
 
 local function get_paras(doc)
 	local result = {}
-	for p in doc.node'BODY P':iter() do
-		table.insert(result, make_elem(p))
+	for s in doc.node'BODY SECTION':iter() do
+		for i, p in ipairs(s) do
+			local elem = make_elem(p, mt_paras)
+			elem.section = make_elem(s)
+			elem.nth = i
+			table.insert(result, elem)
+		end
 	end
 	return result
 end
@@ -218,7 +241,14 @@ local function load(filename)
 
 	local doc = make_elem(xml)
 
+	-- HML 문서 객체의 속성, 메서드
+	doc.iter = iter
+
 	doc.filename = filename
+
+	doc.para_shapes, doc.char_shapes = get_shapes(doc)
+	doc.para_styles, doc.char_styles = get_styles(doc)
+
 	doc.save = function(self, filename)
 		filename = filename or self.filename
 		io.open(filename,'wb'):write(self.node:toxml())
@@ -229,18 +259,13 @@ local function load(filename)
 		self.node:output(puts)
 	end	
 
-	doc.iter = iter
-	
 	doc.get_paras = get_paras
 	doc.get_chars = get_chars
-
-	doc.para_shapes, doc.char_shapes = get_shapes(doc)
-	doc.para_styles, doc.char_styles = get_styles(doc)
 
 	return doc
 end
 
--- interface --
+-- 모듈 인터페이스 --
 return {
 	load = load
 	, make_elem = make_elem
