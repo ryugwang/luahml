@@ -1,4 +1,4 @@
-require"lxp.lom"
+local lom = require"lxp.lom"
 
 local function escape_xml_specials(str)
 	str = string.gsub(str, '&', '&amp;')
@@ -153,7 +153,7 @@ mt.iter = function(self)
     return function(state)
     	state.index = state.index + 1
     	if state.index > #self then return end
-    	return make_selectable(rawget(self, state.index))
+    	return make_selectable(rawget(self, state.index)), state.index
     end, state
 end
 
@@ -246,7 +246,7 @@ mt.__call = function(self, selector)
 			end
 		end
 
-	   	local i, j, p, m = str:find('([.#%[]?)([%a%d-_]+)')
+	   	local i, j, p, m = str:find('([.#%[]?)([%a%d%-_:]+)')
 	   	if i then
 	   		return (conn or ''), (p or ''), m, str:sub(j+1)
 	   	end
@@ -381,7 +381,7 @@ end
 local function load_from_string(str)
 	str = reserve_entities(str)
 	local preamble = get_preamble(str)
-	local t, err = lxp.lom.parse(str)
+	local t, err = lom.parse(str)
 	if t then
 		t.preamble = preamble
 		return make_selectable(t)
