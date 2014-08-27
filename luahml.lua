@@ -5,7 +5,7 @@ local mt_common, mt_para, mt_char
 
 
 ---------------------------------------
--- ¸ğµç ¿ä¼ÒÀÇ ±âº» ¸Ş¼­µåµé
+-- ëª¨ë“  ìš”ì†Œì˜ ê¸°ë³¸ ë©”ì„œë“œë“¤
 ---------------------------------------
 
 local function forward_attr(mt)
@@ -90,7 +90,7 @@ make_elem = function(node, mt)
 	return elem
 end
 
--- P ¿ä¼Ò¿ë ¸Ş¼­µå
+-- P ìš”ì†Œìš© ë©”ì„œë“œ
 mt_para = forward_attr()
 
 mt_para.append = function(self, para)
@@ -102,7 +102,7 @@ mt_para.prepend = function(self, para)
 	return make_elem(para)
 end
 
--- CHAR¿ë ¸Ş¼­µå
+-- CHARìš© ë©”ì„œë“œ
 mt_char = forward_attr()
 mt_char.val = function(elem, str)
 	local charmap = {TAB = '\t', LINEBREAK = '\n',
@@ -135,7 +135,7 @@ mt_char.val = function(elem, str)
 end
 
 ---------------------------------------------
--- ±âÅ¸ ÇÔ¼öµé
+-- ê¸°íƒ€ í•¨ìˆ˜ë“¤
 ---------------------------------------------
 local function get_fonts(doc)
 	local fonts = {}
@@ -149,36 +149,43 @@ end
 local function get_shapes(doc)
 	local para_shapes, char_shapes = {}, {}
 
-	for e in doc:iter'HEAD PARASHAPE' do
+	for i, e in ipairs(doc'HEAD>MAPPINGTABLE>PARASHAPELIST>PARASHAPE') do
 		e.margin = make_elem(e.node'PARAMARGIN'[1])
 		e.border = make_elem(e.node'PARABORDER'[1])
+		para_shapes[tostring(i)] = e
+		para_shapes[i] = e
 	end
 
-	for e in doc:iter'HEAD CHARSHAP' do
+	for i, e in ipairs(doc'HEAD>MAPPINGTABLE>CHARSHAPELIST>CHARSHAPE') do
+
 		e.font = {}
 		local fontid = e'FONTID'[1]
-		for i, v in ipairs(fontid.attr) do
-			local font_lang = fontid.attr[i]
-			e.font[font_lang] = doc.fonts[fontid.attr[font_lang]]
+		for i, v in ipairs(fontid.node.attr) do
+			local font_lang = fontid.node.attr[i]
+			e.font[font_lang] = doc.fonts[fontid.node.attr[font_lang]]
 		end
-	end	
+		char_shapes[tostring(i)] = e
+		char_shapes[i] = e
+	end
 	return para_shapes, char_shapes
 end
 
 
 local function Style(node,doc)
 	local elem = make_elem(node)
+
 	if node.attr.ParaShape then
 		elem.para_shape = doc.para_shapes[node.attr.ParaShape]
 	end
+
 	if node.attr.CharShape then
 		elem.char_shape = doc.char_shapes[node.attr.CharShape]
 	end
-	elem.Id = node.attr.Id
 	return elem
 end
 
 local function get_styles(doc)
+
 	local styles = doc.node'HEAD>MAPPINGTABLE>STYLELIST>STYLE'
 	local para_styles, char_styles = {doc=doc}, {doc=doc}
 	for node in styles:iter() do
@@ -223,9 +230,10 @@ end
 local function get_paras(doc)
 	local result = {}
 	for s in doc.node'BODY SECTION':iter() do
+		local section =	make_elem(s)
 		for i, p in ipairs(s) do
 			local elem = make_elem(p, mt_paras)
-			elem.section = make_elem(s)
+			elem.section = section
 			elem.nth = i
 			table.insert(result, elem)
 		end
@@ -241,11 +249,11 @@ local function load(filename)
 
 	local doc = make_elem(xml)
 
-	-- HML ¹®¼­ °´Ã¼ÀÇ ¼Ó¼º, ¸Ş¼­µå
+	-- HML ë¬¸ì„œ ê°ì²´ì˜ ì†ì„±, ë©”ì„œë“œ
 	doc.iter = iter
 
 	doc.filename = filename
-
+	doc.fonts = get_fonts(doc)
 	doc.para_shapes, doc.char_shapes = get_shapes(doc)
 	doc.para_styles, doc.char_styles = get_styles(doc)
 
@@ -265,7 +273,7 @@ local function load(filename)
 	return doc
 end
 
--- ¸ğµâ ÀÎÅÍÆäÀÌ½º --
+-- ëª¨ë“ˆ ì¸í„°í˜ì´ìŠ¤ --
 return {
 	load = load
 	, make_elem = make_elem
