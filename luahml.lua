@@ -1,5 +1,4 @@
 local xselec = require"xselec"
-
 local mt_common, mt_para, mt_char
 	, make_elem, iter
 
@@ -148,10 +147,15 @@ end
 
 local function get_shapes(doc)
 	local para_shapes, char_shapes = {}, {}
-
 	for i, e in ipairs(doc'HEAD>MAPPINGTABLE>PARASHAPELIST>PARASHAPE') do
 		e.margin = make_elem(e.node'PARAMARGIN'[1])
-		e.border = make_elem(e.node'PARABORDER'[1])
+		local border = make_elem(e.node'PARABORDER'[1])
+		local bd = border.BorderFill
+
+		local brush = doc('BORDERFILL[Id="' .. bd .. '"]>FILLBRUSH>WINDOWBRUSH')[1]
+		if brush then
+			e.shade_color = brush.node.attr['FaceColor']
+		end
 		para_shapes[tostring(i)] = e
 		para_shapes[i] = e
 	end
@@ -164,6 +168,12 @@ local function get_shapes(doc)
 			local font_lang = fontid.node.attr[i]
 			e.font[font_lang] = doc.fonts[fontid.node.attr[font_lang]]
 		end
+
+		e.italic = (e'ITALIC'[1] and true)
+		e.bold = (e'BOLD'[1] and true)
+		e.sub = (e'SUBSCRIPT'[1] and true)
+		e.sup = (e'SUPERSCRIPT'[1] and true)
+
 		char_shapes[tostring(i)] = e
 		char_shapes[i] = e
 	end
@@ -175,11 +185,11 @@ local function Style(node,doc)
 	local elem = make_elem(node)
 
 	if node.attr.ParaShape then
-		elem.para_shape = doc.para_shapes[node.attr.ParaShape]
+		elem.para_shape = doc.para_shapes[node.attr.ParaShape+1]
 	end
 
 	if node.attr.CharShape then
-		elem.char_shape = doc.char_shapes[node.attr.CharShape]
+		elem.char_shape = doc.char_shapes[node.attr.CharShape+1]
 	end
 	return elem
 end
@@ -220,6 +230,7 @@ local function get_chars(doc)
 				first_c = nil
 				last_c = item
 				table.insert(result, item)
+				item.nth = #result
 			end
 		end
 		if last_c then last_c.last = true end
@@ -259,7 +270,9 @@ local function load(filename)
 
 	doc.save = function(self, filename)
 		filename = filename or self.filename
-		io.open(filename,'wb'):write(self.node:toxml())
+		local f = io.open(filename,'wb')
+		f:write(self.node:toxml())
+		f:close()
 	end
 
 	doc.output = function(self, puts)
